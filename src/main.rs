@@ -3,6 +3,7 @@
 use std::sync::{RwLock};
 use std::collections::HashMap;
 use std::fmt::format;
+use std::str::from_utf8_unchecked;
 use rocket::response::status;
 use rocket::State;
 use rocket::serde::json::Json;
@@ -11,16 +12,16 @@ use serde::{Deserialize};
 #[derive(Deserialize)]
 struct Person {
     name: String,
-    age: String,
+    age: i8,
     last_name: String
 }
 
 impl Clone for Person {
     fn clone(&self) -> Self {
         Person {
-            name: self.name.to_string(),
-            age: self.age.to_string(),
-            last_name: self.last_name.to_string(),
+            name: self.name.clone(),
+            age: self.age,
+            last_name: self.last_name.clone(),
         }
     }
 }
@@ -37,7 +38,7 @@ impl KeyValueStore {
     }
 
     fn insert(&self, person: Person) -> Option<Person> {
-        self.store.write().unwrap().insert(person.name.clone(), person)
+        self.store.write().unwrap().insert(person.name.to_string(), person)
     }
 
     fn get(&self, key: &str) -> Option<Person> {
@@ -50,12 +51,12 @@ impl KeyValueStore {
     }
 }
 
-#[put("/<name>/<age>/<last_name>")]
-fn put_index(name: &str, age: i8, last_name: &str, cache: &State<KeyValueStore>) -> status::Created<String> {
+#[put("/<name>", format="json", data="<person>")]
+fn put_index(name: &str, person: Json<Person>, cache: &State<KeyValueStore>) -> status::Created<String> {
     cache.insert(Person {
         name: name.to_string(),
-        age: age.to_string(),
-        last_name: last_name.to_string()
+        age: person.age,
+        last_name: person.into_inner().last_name
     });
 
     status::Created::new(format!("localhost:8000/{name}")).tagged_body("person".to_string())
@@ -82,7 +83,11 @@ fn index(name: &str, cache: &State<KeyValueStore>) -> String {
 #[post("/person", format="json", data="<person>")]
 fn post_index(person: Json<Person>, cache: &State<KeyValueStore>) -> status::Created<String> {
     let person = person.into_inner();
-    cache.insert(person.clone());
+    cache.insert(Person {
+        name: person.name.clone(),
+        last_name: person.last_name.clone(),
+        age: person.age
+    });
 
     status::Created::new(format!("localhost:8000/{}", person.name)).tagged_body(String::from("written"))
 }
