@@ -74,7 +74,7 @@ fn delete_index(name: &str, cache: &State<KeyValueStore>) -> String {
 #[get("/<name>")]
 fn index(name: &str, cache: &State<KeyValueStore>) -> Result<Json<Person>, NotFound<String>> {
     if let Some(person) = cache.get(name) {
-        Ok(Json::from(person))
+        Ok(Json(person))
     } else {
         Err(NotFound(format!("Person with name {} does not exist", name)))
     }
