@@ -2,14 +2,14 @@
 
 use std::sync::{RwLock};
 use std::collections::HashMap;
-use std::fmt::format;
-use std::str::from_utf8_unchecked;
+use rocket::http::Status;
 use rocket::response::status;
+use rocket::response::status::NotFound;
 use rocket::State;
 use rocket::serde::json::Json;
-use serde::{Deserialize};
+use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize, Hash)]
 struct Person {
     name: String,
     age: i8,
@@ -52,14 +52,14 @@ impl KeyValueStore {
 }
 
 #[put("/<name>", format="json", data="<person>")]
-fn put_index(name: &str, person: Json<Person>, cache: &State<KeyValueStore>) -> status::Created<String> {
+fn put_index(name: &str, person: Json<Person>, cache: &State<KeyValueStore>) -> status::Created<Json<Person>> {
     cache.insert(Person {
         name: name.to_string(),
         age: person.age,
         last_name: person.into_inner().last_name
     });
 
-    status::Created::new(format!("localhost:8000/{name}")).tagged_body("person".to_string())
+    status::Created::new(format!("localhost:8000/{name}")).tagged_body(Json(cache.get(name).unwrap()))
 }
 
 #[delete("/<name>")]
@@ -72,16 +72,16 @@ fn delete_index(name: &str, cache: &State<KeyValueStore>) -> String {
 }
 
 #[get("/<name>")]
-fn index(name: &str, cache: &State<KeyValueStore>) -> String {
+fn index(name: &str, cache: &State<KeyValueStore>) -> Result<Json<Person>, NotFound<String>> {
     if let Some(person) = cache.get(name) {
-        format!("Hello there {} {} {}", person.name, person.age, person.last_name)
+        Ok(Json::from(person))
     } else {
-        "no one found!".to_string()
+        Err(NotFound(format!("Person with name {} does not exist", name)))
     }
 }
 
 #[post("/person", format="json", data="<person>")]
-fn post_index(person: Json<Person>, cache: &State<KeyValueStore>) -> status::Created<String> {
+fn post_index(person: Json<Person>, cache: &State<KeyValueStore>) -> status::Created<Json<Person>> {
     let person = person.into_inner();
     cache.insert(Person {
         name: person.name.clone(),
@@ -89,7 +89,7 @@ fn post_index(person: Json<Person>, cache: &State<KeyValueStore>) -> status::Cre
         age: person.age
     });
 
-    status::Created::new(format!("localhost:8000/{}", person.name)).tagged_body(String::from("written"))
+    status::Created::new(format!("localhost:8000/{}", person.name)).tagged_body(Json(cache.get(person.name.as_str()).unwrap()))
 }
 
 #[launch]
