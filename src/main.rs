@@ -2,8 +2,6 @@
 
 use std::sync::{RwLock};
 use std::collections::HashMap;
-use std::fmt::format;
-use rocket::http::Status;
 use rocket::response::status;
 use rocket::response::status::NotFound;
 use rocket::State;
@@ -24,6 +22,40 @@ impl Clone for Person {
             age: self.age,
             last_name: self.last_name.clone(),
         }
+    }
+}
+
+#[derive(Serialize, Hash)]
+struct Error {
+    code: i16,
+    message: String
+}
+
+trait Errors {
+    fn not_found(message: String) -> Json<Error>;
+}
+
+trait PersonErrors {
+    fn not_found(id: String) -> Json<Error>;
+}
+
+impl Errors for Error {
+    fn not_found(message: String) -> Json<Error> {
+        Json(Error {
+            message,
+            code: 404
+        })
+    }
+}
+
+impl PersonErrors for Error {
+    fn not_found(id: String) -> Json<Error> {
+        Json(
+            Error {
+                message: format!("person with id: {id} not found"),
+                code: 404
+            }
+        )
     }
 }
 
@@ -64,20 +96,20 @@ fn put_index(name: &str, person: Json<Person>, cache: &State<KeyValueStore>) -> 
 }
 
 #[delete("/<name>")]
-fn delete_index(name: &str, cache: &State<KeyValueStore>) -> Result<status::NoContent, NotFound<String>> {
+fn delete_index(name: &str, cache: &State<KeyValueStore>) -> Result<status::NoContent, NotFound<Json<Error>>> {
     if let Some(person) = cache.delete(name) {
         Ok(status::NoContent)
     } else {
-        Err(NotFound(format!("Person with name {} does not exist", name)))
+        Err(NotFound(<Error as PersonErrors>::not_found(name.to_string())))
     }
 }
 
 #[get("/<name>")]
-fn index(name: &str, cache: &State<KeyValueStore>) -> Result<Json<Person>, NotFound<String>> {
+fn index(name: &str, cache: &State<KeyValueStore>) -> Result<Json<Person>, NotFound<Json<Error>>> {
     if let Some(person) = cache.get(name) {
         Ok(Json(person))
     } else {
-        Err(NotFound(format!("Person with name {} does not exist", name)))
+        Err(NotFound(<Error as PersonErrors>::not_found(name.to_string())))
     }
 }
 
