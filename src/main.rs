@@ -5,7 +5,10 @@ use std::collections::HashMap;
 use std::fmt::format;
 use rocket::response::status;
 use rocket::State;
+use rocket::serde::json::Json;
+use serde::{Deserialize};
 
+#[derive(Deserialize)]
 struct Person {
     name: String,
     age: String,
@@ -33,8 +36,8 @@ impl KeyValueStore {
         }
     }
 
-    fn insert(&self, key: &str, person: Person) -> Option<Person> {
-        self.store.write().unwrap().insert(key.into(), person)
+    fn insert(&self, person: Person) -> Option<Person> {
+        self.store.write().unwrap().insert(person.name.clone(), person)
     }
 
     fn get(&self, key: &str) -> Option<Person> {
@@ -49,7 +52,7 @@ impl KeyValueStore {
 
 #[put("/<name>/<age>/<last_name>")]
 fn put_index(name: &str, age: i8, last_name: &str, cache: &State<KeyValueStore>) -> status::Created<String> {
-    cache.insert(name, Person {
+    cache.insert(Person {
         name: name.to_string(),
         age: age.to_string(),
         last_name: last_name.to_string()
@@ -76,15 +79,12 @@ fn index(name: &str, cache: &State<KeyValueStore>) -> String {
     }
 }
 
-#[post("/<name>/<age>/<last_name>")]
-fn post_index(name: &str, age: i8, last_name: &str, cache: &State<KeyValueStore>) -> status::Created<String> {
-    cache.insert(name, Person {
-        age: age.to_string(),
-        name: name.to_string(),
-        last_name: last_name.to_string()
-    });
+#[post("/person", format="json", data="<person>")]
+fn post_index(person: Json<Person>, cache: &State<KeyValueStore>) -> status::Created<String> {
+    let person = person.into_inner();
+    cache.insert(person.clone());
 
-    status::Created::new(format!("localhost:8000/{name}")).tagged_body(String::from("written"))
+    status::Created::new(format!("localhost:8000/{}", person.name)).tagged_body(String::from("written"))
 }
 
 #[launch]
