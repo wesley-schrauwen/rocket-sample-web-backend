@@ -2,6 +2,7 @@
 
 use std::sync::{RwLock};
 use std::collections::HashMap;
+use std::fmt::format;
 use rocket::http::Status;
 use rocket::response::status;
 use rocket::response::status::NotFound;
@@ -63,11 +64,11 @@ fn put_index(name: &str, person: Json<Person>, cache: &State<KeyValueStore>) -> 
 }
 
 #[delete("/<name>")]
-fn delete_index(name: &str, cache: &State<KeyValueStore>) -> String {
+fn delete_index(name: &str, cache: &State<KeyValueStore>) -> Result<status::NoContent, NotFound<String>> {
     if let Some(person) = cache.delete(name) {
-        format!("{} {} deleted", person.name, person.last_name)
+        Ok(status::NoContent)
     } else {
-        "No entry".to_string()
+        Err(NotFound(format!("Person with name {} does not exist", name)))
     }
 }
 
