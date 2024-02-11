@@ -136,5 +136,5 @@ async fn rocket() -> _ {
         .connect(&database_url)
         .await.expect("Failed to init postgres");
 
-    rocket::build().manage(store).mount("/", routes![index, post_index, delete_index, put_index])
+    rocket::build().manage(store).manage(pool).mount("/", routes![index, post_index, delete_index, put_index])
 }
