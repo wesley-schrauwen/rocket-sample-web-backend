@@ -7,11 +7,12 @@ use rocket::response::status::NotFound;
 use rocket::State;
 use rocket::serde::json::Json;
 use serde::{Deserialize, Serialize};
+use sqlx::postgres::PgPoolOptions;
 
 #[derive(Deserialize, Serialize, Hash)]
 struct Person {
     name: String,
-    age: i8,
+    age: u8,
     last_name: String
 }
 
@@ -27,7 +28,7 @@ impl Clone for Person {
 
 #[derive(Serialize, Hash)]
 struct Error {
-    code: i16,
+    code: u16,
     message: String
 }
 
@@ -126,7 +127,14 @@ fn post_index(person: Json<Person>, cache: &State<KeyValueStore>) -> status::Cre
 }
 
 #[launch]
-fn rocket() -> _ {
+async fn rocket() -> _ {
     let store = KeyValueStore::new();
+    let database_url = "postgres://postgres:password@localhost:5432";
+
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&database_url)
+        .await.expect("Failed to init postgres");
+
     rocket::build().manage(store).mount("/", routes![index, post_index, delete_index, put_index])
 }
