@@ -2,23 +2,31 @@
 
 use std::sync::{RwLock};
 use std::collections::HashMap;
+use std::fmt::{Debug};
+use rocket::futures::AsyncWriteExt;
 use rocket::response::status;
-use rocket::response::status::NotFound;
+use rocket::response::status::{BadRequest, Custom, NotFound};
 use rocket::State;
 use rocket::serde::json::Json;
 use serde::{Deserialize, Serialize};
-use sqlx::postgres::PgPoolOptions;
+use sqlx::{PgPool, Row};
+use sqlx::postgres::{PgPoolOptions};
+use uuid::Uuid;
 
 #[derive(Deserialize, Serialize, Hash)]
-struct Person {
+struct User {
     name: String,
-    age: u8,
+    age: i32, /*
+        postgres actually doesnt support i8 which would be closer to a reasonable age but because
+        its signed we need to deal with negatives anyway so may as well make this i32 and then do
+        validations
+    */
     last_name: String
 }
 
-impl Clone for Person {
+impl Clone for User {
     fn clone(&self) -> Self {
-        Person {
+        User {
             name: self.name.clone(),
             age: self.age,
             last_name: self.last_name.clone(),
@@ -38,6 +46,7 @@ trait Errors {
 
 trait PersonErrors {
     fn not_found(id: String) -> Json<Error>;
+    fn internal_error() -> Json<Error>;
 }
 
 impl Errors for Error {
@@ -58,10 +67,17 @@ impl PersonErrors for Error {
             }
         )
     }
+
+    fn internal_error() -> Json<Error> {
+        Json(Error {
+                code: 500,
+                message: String::from("Internal server error")
+            })
+    }
 }
 
 struct KeyValueStore {
-    store: RwLock<HashMap<String, Person>>
+    store: RwLock<HashMap<String, User>>
 }
 
 impl KeyValueStore {
@@ -71,29 +87,32 @@ impl KeyValueStore {
         }
     }
 
-    fn insert(&self, person: Person) -> Option<Person> {
-        self.store.write().unwrap().insert(person.name.to_string(), person)
+    fn insert(&self, person: User) -> Option<User> {
+        let name = person.name.clone();
+        self.store.write().unwrap().insert(name.clone(), person);
+
+        self.get(name.as_str())
     }
 
-    fn get(&self, key: &str) -> Option<Person> {
+    fn get(&self, key: &str) -> Option<User> {
         let store = self.store.read().unwrap();
         store.get(key).cloned()
     }
 
-    fn delete(&self, key: &str) -> Option<Person> {
+    fn delete(&self, key: &str) -> Option<User> {
         self.store.write().unwrap().remove(key)
     }
 }
 
 #[put("/<name>", format="json", data="<person>")]
-fn put_index(name: &str, person: Json<Person>, cache: &State<KeyValueStore>) -> status::Created<Json<Person>> {
-    cache.insert(Person {
+fn put_index(name: &str, person: Json<User>, cache: &State<KeyValueStore>) -> status::Created<Json<User>> {
+    let person = cache.insert(User {
         name: name.to_string(),
         age: person.age,
         last_name: person.into_inner().last_name
-    });
+    }).unwrap();
 
-    status::Created::new(format!("localhost:8000/{name}")).tagged_body(Json(cache.get(name).unwrap()))
+    status::Created::new(format!("localhost:8000/{name}")).tagged_body(Json(person.clone()))
 }
 
 #[delete("/<name>")]
@@ -106,24 +125,34 @@ fn delete_index(name: &str, cache: &State<KeyValueStore>) -> Result<status::NoCo
 }
 
 #[get("/<name>")]
-fn index(name: &str, cache: &State<KeyValueStore>) -> Result<Json<Person>, NotFound<Json<Error>>> {
+fn index(name: &str, cache: &State<KeyValueStore>) -> Result<Json<User>, NotFound<Json<Error>>> {
     if let Some(person) = cache.get(name) {
-        Ok(Json(person))
+        Ok(Json(person.clone()))
     } else {
         Err(NotFound(<Error as PersonErrors>::not_found(name.to_string())))
     }
 }
 
-#[post("/person", format="json", data="<person>")]
-fn post_index(person: Json<Person>, cache: &State<KeyValueStore>) -> status::Created<Json<Person>> {
-    let person = person.into_inner();
-    cache.insert(Person {
-        name: person.name.clone(),
-        last_name: person.last_name.clone(),
-        age: person.age
-    });
+#[post("/person", format="json", data="<person_data>")]
+async fn post_index(pool: &State<PgPool>, person_data: Json<User>) -> Result<(), BadRequest<Json<Error>>> {
+    let person = person_data.into_inner();
 
-    status::Created::new(format!("localhost:8000/{}", person.name)).tagged_body(Json(cache.get(person.name.as_str()).unwrap()))
+    let query = sqlx::query("INSERT INTO USERS (name, age, last_name) VALUES ($1,$2, $3) RETURNING id")
+        .bind(person.name.clone())
+        .bind(person.age)
+        .bind(person.last_name.clone())
+        .fetch_one(pool.inner())
+        .await;
+
+    match query {
+        Ok(record) => {
+            let id: Uuid = record.get("id");
+            println!("{:?}", id);
+            Ok(())
+        },
+        Err(_) => Err(BadRequest(<Error as PersonErrors>::internal_error()))
+    }
+
 }
 
 #[launch]
