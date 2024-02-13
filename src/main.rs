@@ -8,12 +8,13 @@ use rocket::response::status;
 use rocket::response::status::{BadRequest, Custom, NotFound};
 use rocket::State;
 use rocket::serde::json::Json;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::ser::SerializeStruct;
 use sqlx::{PgPool, Row};
 use sqlx::postgres::{PgPoolOptions};
 use uuid::Uuid;
 
-#[derive(Deserialize, Serialize, Hash)]
+#[derive(Serialize, Deserialize, Hash)]
 struct User {
     name: String,
     age: i32, /*
@@ -21,7 +22,8 @@ struct User {
         its signed we need to deal with negatives anyway so may as well make this i32 and then do
         validations
     */
-    last_name: String
+    last_name: String,
+    id: Option<Uuid>
 }
 
 impl Clone for User {
@@ -30,6 +32,7 @@ impl Clone for User {
             name: self.name.clone(),
             age: self.age,
             last_name: self.last_name.clone(),
+            id: self.id.clone()
         }
     }
 }
@@ -109,7 +112,8 @@ fn put_index(name: &str, person: Json<User>, cache: &State<KeyValueStore>) -> st
     let person = cache.insert(User {
         name: name.to_string(),
         age: person.age,
-        last_name: person.into_inner().last_name
+        last_name: person.into_inner().last_name,
+        id: None
     }).unwrap();
 
     status::Created::new(format!("localhost:8000/{name}")).tagged_body(Json(person.clone()))
@@ -137,7 +141,7 @@ fn index(name: &str, cache: &State<KeyValueStore>) -> Result<Json<User>, NotFoun
 async fn post_index(pool: &State<PgPool>, person_data: Json<User>) -> Result<(), BadRequest<Json<Error>>> {
     let person = person_data.into_inner();
 
-    let query = sqlx::query("INSERT INTO USERS (name, age, last_name) VALUES ($1,$2, $3) RETURNING id")
+    let query = sqlx::query("INSERT INTO USERS (name, age, last_name) VALUES ($1, $2, $3) RETURNING id")
         .bind(person.name.clone())
         .bind(person.age)
         .bind(person.last_name.clone())

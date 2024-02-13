@@ -10,4 +10,4 @@ rocket = { version = "0.5.0", features = ["json"] }
 serde = { version = "1.0.196", features = ["derive"]}
 sqlx = { version = "0.7.3", features = ["sqlx-postgres", "uuid", "runtime-async-std", "postgres", "default"]}
 rocket_db_pools = { version = "0.1.0", features = ["sqlx_postgres"]}
-uuid = { version = "1.7.0", features = ["v4"] }
+uuid = { version = "1.7.0", features = ["v4", "serde"] }
