@@ -2,17 +2,16 @@
 
 use std::sync::{RwLock};
 use std::collections::HashMap;
-use std::fmt::{Debug};
+
 use std::str::FromStr;
-use rocket::futures::AsyncWriteExt;
-use rocket::request::FromParam;
+
 use rocket::response::status;
-use rocket::response::status::{BadRequest, Custom, NotFound};
+use rocket::response::status::{BadRequest, NotFound};
 use rocket::State;
 use rocket::serde::json::Json;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use serde::ser::SerializeStruct;
-use sqlx::{Error, FromRow, PgPool, Postgres, Row};
+use serde::{Deserialize, Serialize};
+
+use sqlx::{Error, FromRow, PgPool, Row};
 use sqlx::postgres::{PgPoolOptions, PgRow};
 use uuid::Uuid;
 
@@ -166,7 +165,7 @@ fn put_index(name: &str, person: Json<UserDTO>, cache: &State<KeyValueStore>) ->
 
 #[delete("/<name>")]
 fn delete_index(name: &str, cache: &State<KeyValueStore>) -> Result<status::NoContent, NotFound<Json<ErrorResponse>>> {
-    if let Some(person) = cache.delete(name) {
+    if let Some(_person) = cache.delete(name) {
         Ok(status::NoContent)
     } else {
         Err(NotFound(<ErrorResponse as PersonErrors>::not_found(name.to_string())))
