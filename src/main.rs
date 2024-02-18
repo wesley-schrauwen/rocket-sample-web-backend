@@ -5,10 +5,12 @@ use std::collections::HashMap;
 
 use std::str::FromStr;
 
-use rocket::response::status;
+use rocket::response::{Responder, status};
 use rocket::response::status::{BadRequest, NotFound};
-use rocket::State;
-use rocket::serde::json::Json;
+use rocket::{Request, Response, State};
+use rocket::http::{ContentType, Header, Method, Status};
+
+use rocket::serde::json::{Json, to_string};
 use serde::{Deserialize, Serialize};
 
 use sqlx::{Error, FromRow, PgPool, Row};
@@ -27,7 +29,7 @@ struct UserDTO {
 }
 
 #[derive(Serialize, Hash, Clone)]
-struct UserDBO {
+struct UserRecord {
     name: String,
     age: i32, /*
         postgres actually doesnt support i8 which would be closer to a reasonable age but because
@@ -38,7 +40,7 @@ struct UserDBO {
     id: Uuid,
 }
 
-impl FromRow<'_, PgRow> for UserDBO {
+impl FromRow<'_, PgRow> for UserRecord {
     fn from_row(row: &PgRow) -> Result<Self, Error> {
         Ok(Self {
             name: row.get::<String, &str>("name"),
@@ -67,12 +69,12 @@ struct ErrorResponse {
 
 trait DatabaseModel {
     // fn insert(user: User) -> Uuid;
-    async fn get_by_id(id: &Uuid, pool: &PgPool) -> Result<UserDBO, ErrorResponse>;
+    async fn get_by_id(id: &Uuid, pool: &PgPool) -> Result<UserRecord, ErrorResponse>;
 }
 
 impl DatabaseModel for UserDTO {
-    async fn get_by_id(id: &Uuid, pool: &PgPool) -> Result<UserDBO, ErrorResponse> {
-        match sqlx::query_as::<_, UserDBO>("select * from users where id = $1").bind(id).fetch_optional(pool).await {
+    async fn get_by_id(id: &Uuid, pool: &PgPool) -> Result<UserRecord, ErrorResponse> {
+        match sqlx::query_as::<_, UserRecord>("select * from users where id = $1").bind(id).fetch_optional(pool).await {
             Ok(Some(user)) => Ok(user),
             Ok(_) => Err(ErrorResponse {
                 code: 400,
@@ -172,13 +174,31 @@ fn delete_index(name: &str, cache: &State<KeyValueStore>) -> Result<status::NoCo
     }
 }
 
+impl<'r> Responder<'r, 'static> for UserRecord {
+    fn respond_to(self, request: &'r Request<'_>) -> rocket::response::Result<'static> {
+        let serialized_user = to_string(&self).unwrap();
+
+        let status = match request.method() {
+            Method::Post | Method::Put | Method::Patch => Status::Created,
+            _ => Status::Ok
+        };
+
+        Ok(
+            Response::build()
+                .status(status)
+                .header(ContentType::JSON)
+                .sized_body(serialized_user.len(), std::io::Cursor::new(serialized_user))
+                .finalize()
+        )
+    }
+}
+
 #[get("/person/<id>")]
-async fn index(id: &str, pool: &State<PgPool>) -> Result<Json<UserDBO>, NotFound<Json<ErrorResponse>>> {
+async fn index(id: &str, pool: &State<PgPool>) -> Result<UserRecord, Json<ErrorResponse>> {
     let uuid = Uuid::from_str(id).unwrap();
-    if let Ok(user) = UserDTO::get_by_id(&uuid, pool.inner()).await {
-        Ok(Json(user.clone()))
-    } else {
-        Err(NotFound(<ErrorResponse as PersonErrors>::not_found(id.to_string())))
+    match UserDTO::get_by_id(&uuid, pool.inner()).await {
+        Ok(user_dbo) => Ok(user_dbo),
+        Err(error) =>  Err(Json(error))
     }
 }
 
