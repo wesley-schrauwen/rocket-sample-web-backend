@@ -9,6 +9,7 @@ use rocket::response::{Responder, status};
 use rocket::response::status::{BadRequest, NotFound};
 use rocket::{Request, Response, State};
 use rocket::http::{ContentType, Header, Method, Status};
+use rocket::request::FromParam;
 
 use rocket::serde::json::{Json, to_string};
 use serde::{Deserialize, Serialize};
@@ -72,7 +73,7 @@ trait DatabaseModel {
     async fn get_by_id(id: &Uuid, pool: &PgPool) -> Result<UserRecord, ErrorResponse>;
 }
 
-impl DatabaseModel for UserDTO {
+impl DatabaseModel for UserRecord {
     async fn get_by_id(id: &Uuid, pool: &PgPool) -> Result<UserRecord, ErrorResponse> {
         match sqlx::query_as::<_, UserRecord>("select * from users where id = $1").bind(id).fetch_optional(pool).await {
             Ok(Some(user)) => Ok(user),
@@ -194,9 +195,8 @@ impl<'r> Responder<'r, 'static> for UserRecord {
 }
 
 #[get("/person/<id>")]
-async fn index(id: &str, pool: &State<PgPool>) -> Result<UserRecord, Json<ErrorResponse>> {
-    let uuid = Uuid::from_str(id).unwrap();
-    match UserDTO::get_by_id(&uuid, pool.inner()).await {
+async fn index(id: Uuid, pool: &State<PgPool>) -> Result<UserRecord, Json<ErrorResponse>> {
+    match UserRecord::get_by_id(&id, pool.inner()).await {
         Ok(user_dbo) => Ok(user_dbo),
         Err(error) =>  Err(Json(error))
     }
