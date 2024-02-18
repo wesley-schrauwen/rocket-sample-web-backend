@@ -64,29 +64,51 @@ impl Clone for UserDTO {
 
 #[derive(Serialize, Hash)]
 struct ErrorResponse {
-    code: u16,
+    code: Status,
     message: String
 }
 
 trait DatabaseModel {
     // fn insert(user: User) -> Uuid;
     async fn get_by_id(id: &Uuid, pool: &PgPool) -> Result<UserRecord, ErrorResponse>;
+    async fn insert(user: &UserDTO, pool: &PgPool) -> Result<UserRecord, ErrorResponse>;
 }
 
 impl DatabaseModel for UserRecord {
     async fn get_by_id(id: &Uuid, pool: &PgPool) -> Result<UserRecord, ErrorResponse> {
-        match sqlx::query_as::<_, UserRecord>("select * from users where id = $1").bind(id).fetch_optional(pool).await {
+        let query = "select * from users where id = $1";
+
+        match sqlx::query_as::<_, UserRecord>(query).bind(id).fetch_optional(pool).await {
             Ok(Some(user)) => Ok(user),
             Ok(_) => Err(ErrorResponse {
-                code: 400,
+                code: Status::NotFound,
                 message: format!("User with id {id} not found")
             }),
             Err(error) => {
                 Err(ErrorResponse {
-                    code: 500,
+                    code: Status::InternalServerError,
                     message: error.to_string()
                 })
             }
+        }
+    }
+
+    async fn insert(user: &UserDTO, pool: &PgPool) -> Result<UserRecord, ErrorResponse> {
+        let query = "INSERT INTO USERS (name, age, last_name) VALUES ($1, $2, $3) RETURNING *";
+
+        match sqlx::query_as::<_, UserRecord>(query)
+            .bind(&user.name)
+            .bind(&user.age)
+            .bind(&user.last_name)
+            .fetch_one(pool)
+            .await {
+            Ok(user) => Ok(user),
+            Err(error) => Err(
+                ErrorResponse {
+                    code: Status::InternalServerError,
+                    message: error.to_string(),
+                }
+            )
         }
     }
 }
@@ -104,7 +126,7 @@ impl Errors for ErrorResponse {
     fn not_found(message: String) -> Json<ErrorResponse> {
         Json(ErrorResponse {
             message,
-            code: 404
+            code: Status::NotFound
         })
     }
 }
@@ -114,16 +136,49 @@ impl PersonErrors for ErrorResponse {
         Json(
             ErrorResponse {
                 message: format!("person with id: {id} not found"),
-                code: 404
+                code: Status::NotFound
             }
         )
     }
 
     fn internal_error() -> Json<ErrorResponse> {
         Json(ErrorResponse {
-                code: 500,
+                code: Status::InternalServerError,
                 message: String::from("Internal server error")
             })
+    }
+}
+
+impl<'r> Responder<'r, 'static> for UserRecord {
+    fn respond_to(self, request: &'r Request<'_>) -> rocket::response::Result<'static> {
+        let serialized = to_string(&self).unwrap();
+
+        let status = match request.method() {
+            Method::Post | Method::Put | Method::Patch => Status::Created,
+            _ => Status::Ok
+        };
+
+        Ok(
+            Response::build()
+                .status(status)
+                .header(ContentType::JSON)
+                .sized_body(serialized.len(), std::io::Cursor::new(serialized))
+                .finalize()
+        )
+    }
+}
+
+impl<'r> Responder<'r, 'static> for ErrorResponse {
+    fn respond_to(self, request: &'r Request<'_>) -> rocket::response::Result<'static> {
+        let serialized = to_string(&self).unwrap();
+
+        Ok(
+            Response::build()
+                .status(self.code)
+                .header(ContentType::JSON)
+                .sized_body(serialized.len(), std::io::Cursor::new(serialized))
+                .finalize()
+        )
     }
 }
 
@@ -175,51 +230,20 @@ fn delete_index(name: &str, cache: &State<KeyValueStore>) -> Result<status::NoCo
     }
 }
 
-impl<'r> Responder<'r, 'static> for UserRecord {
-    fn respond_to(self, request: &'r Request<'_>) -> rocket::response::Result<'static> {
-        let serialized_user = to_string(&self).unwrap();
-
-        let status = match request.method() {
-            Method::Post | Method::Put | Method::Patch => Status::Created,
-            _ => Status::Ok
-        };
-
-        Ok(
-            Response::build()
-                .status(status)
-                .header(ContentType::JSON)
-                .sized_body(serialized_user.len(), std::io::Cursor::new(serialized_user))
-                .finalize()
-        )
-    }
-}
-
 #[get("/person/<id>")]
-async fn index(id: Uuid, pool: &State<PgPool>) -> Result<UserRecord, Json<ErrorResponse>> {
+async fn get_person_by_id(id: Uuid, pool: &State<PgPool>) -> Result<UserRecord, ErrorResponse> {
     match UserRecord::get_by_id(&id, pool.inner()).await {
         Ok(user_dbo) => Ok(user_dbo),
-        Err(error) =>  Err(Json(error))
+        Err(error) =>  Err(error)
     }
 }
 
 #[post("/person", format="json", data="<person_data>")]
-async fn post_index(pool: &State<PgPool>, person_data: Json<UserDTO>) -> Result<(), BadRequest<Json<ErrorResponse>>> {
+async fn create_person(pool: &State<PgPool>, person_data: Json<UserDTO>) -> Result<UserRecord, ErrorResponse> {
     let person = person_data.into_inner();
-
-    let query = sqlx::query("INSERT INTO USERS (name, age, last_name) VALUES ($1, $2, $3) RETURNING id")
-        .bind(person.name.clone())
-        .bind(person.age)
-        .bind(person.last_name.clone())
-        .fetch_one(pool.inner())
-        .await;
-
-    match query {
-        Ok(record) => {
-            let id: Uuid = record.get("id");
-            println!("{:?}", id);
-            Ok(())
-        },
-        Err(_) => Err(BadRequest(<ErrorResponse as PersonErrors>::internal_error()))
+    match UserRecord::insert(&person, &pool.inner()).await {
+        Ok(record) => Ok(record),
+        Err(error) => Err(error)
     }
 
 }
@@ -234,5 +258,5 @@ async fn rocket() -> _ {
         .connect(&database_url)
         .await.expect("Failed to init postgres");
 
-    rocket::build().manage(cache).manage(pool).mount("/", routes![index, post_index, delete_index, put_index])
+    rocket::build().manage(cache).manage(pool).mount("/", routes![get_person_by_id, create_person, delete_index, put_index])
 }
