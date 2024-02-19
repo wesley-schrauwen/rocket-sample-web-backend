@@ -15,8 +15,13 @@ use rocket::serde::json::{Json, to_string};
 use serde::{Deserialize, Serialize};
 
 use sqlx::{Error, FromRow, PgPool, Row};
-use sqlx::postgres::{PgPoolOptions, PgRow};
+use sqlx::postgres::{PgPoolOptions, PgQueryResult, PgRow};
 use uuid::Uuid;
+use rocket::Config;
+use rocket::figment::{Figment, Profile};
+use rocket::figment::error::Actual;
+use rocket::figment::providers::{Env, Format, Toml};
+use rocket::figment::value::Value;
 
 #[derive(Serialize, Deserialize, Hash)]
 struct UserDTO {
@@ -69,9 +74,9 @@ struct ErrorResponse {
 }
 
 trait DatabaseModel {
-    // fn insert(user: User) -> Uuid;
     async fn get_by_id(id: &Uuid, pool: &PgPool) -> Result<UserRecord, ErrorResponse>;
     async fn insert(user: &UserDTO, pool: &PgPool) -> Result<UserRecord, ErrorResponse>;
+    async fn delete_by_id(id: &Uuid, pool: &PgPool) -> Result<(), ErrorResponse>;
 }
 
 impl DatabaseModel for UserRecord {
@@ -109,6 +114,20 @@ impl DatabaseModel for UserRecord {
                     message: error.to_string(),
                 }
             )
+        }
+    }
+
+    async fn delete_by_id(id: &Uuid, pool: &PgPool) -> Result<(), ErrorResponse> {
+        let query = "DELETE FROM USERS where id = $1";
+
+        match sqlx::query(query).bind(id).execute(pool).await {
+            Ok(_) => Ok(()),
+            Err(error) => Err(
+                ErrorResponse {
+                    code: Status::InternalServerError,
+                    message: error.to_string()
+                }
+            ),
         }
     }
 }
@@ -153,18 +172,28 @@ impl<'r> Responder<'r, 'static> for UserRecord {
     fn respond_to(self, request: &'r Request<'_>) -> rocket::response::Result<'static> {
         let serialized = to_string(&self).unwrap();
 
+        let mut response = Response::build();
+
+        response.header(ContentType::JSON);
+        response.sized_body(serialized.len(), std::io::Cursor::new(serialized));
+
+        let config = Figment::from(Config::default())
+            .merge(Toml::file(Env::var_or("ROCKET_CONFIG", "Rocket.toml")).nested());
+
+        let port = match config.find_value("port") {
+            Ok(number) => number.to_i128().unwrap(),
+            _ => 0
+        };
+
         let status = match request.method() {
-            Method::Post | Method::Put | Method::Patch => Status::Created,
+            Method::Post | Method::Put | Method::Patch => {
+                response.header(Header::new("location",format!("http://localhost:{}/person/{}", port, &self.id)));
+                Status::Created
+            },
             _ => Status::Ok
         };
 
-        Ok(
-            Response::build()
-                .status(status)
-                .header(ContentType::JSON)
-                .sized_body(serialized.len(), std::io::Cursor::new(serialized))
-                .finalize()
-        )
+        Ok(response.status(status).finalize())
     }
 }
 
@@ -221,12 +250,11 @@ fn put_index(name: &str, person: Json<UserDTO>, cache: &State<KeyValueStore>) ->
     status::Created::new(format!("localhost:8000/{name}")).tagged_body(Json(person.clone()))
 }
 
-#[delete("/<name>")]
-fn delete_index(name: &str, cache: &State<KeyValueStore>) -> Result<status::NoContent, NotFound<Json<ErrorResponse>>> {
-    if let Some(_person) = cache.delete(name) {
-        Ok(status::NoContent)
-    } else {
-        Err(NotFound(<ErrorResponse as PersonErrors>::not_found(name.to_string())))
+#[delete("/person/<id>")]
+async fn delete_person_by_id(id: Uuid, pool: &State<PgPool>) -> Result<status::NoContent, ErrorResponse> {
+    match UserRecord::delete_by_id(&id, &pool.inner()).await {
+        Ok(_) => Ok(status::NoContent),
+        Err(error) => Err(error)
     }
 }
 
@@ -245,7 +273,6 @@ async fn create_person(pool: &State<PgPool>, person_data: Json<UserDTO>) -> Resu
         Ok(record) => Ok(record),
         Err(error) => Err(error)
     }
-
 }
 
 #[launch]
@@ -256,7 +283,11 @@ async fn rocket() -> _ {
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .connect(&database_url)
-        .await.expect("Failed to init postgres");
+        .await
+        .expect("Failed to init postgres");
 
-    rocket::build().manage(cache).manage(pool).mount("/", routes![get_person_by_id, create_person, delete_index, put_index])
+    rocket::build()
+        .manage(cache)
+        .manage(pool)
+        .mount("/", routes![get_person_by_id, create_person, delete_person_by_id, put_index])
 }
