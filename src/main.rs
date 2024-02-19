@@ -21,7 +21,9 @@ use rocket::Config;
 use rocket::figment::{Figment, Profile};
 use rocket::figment::error::Actual;
 use rocket::figment::providers::{Env, Format, Toml};
+use rocket::figment::value::Num::I32;
 use rocket::figment::value::Value;
+use rocket::figment::value::Value::Num;
 
 #[derive(Serialize, Deserialize, Hash)]
 struct UserDTO {
@@ -130,6 +132,10 @@ impl DatabaseModel for UserRecord {
             ),
         }
     }
+
+    async fn update(id: &Uuid, user: &UserDTO, pool: &PgPool) -> Result<UserRecord, ErrorResponse> {
+
+    }
 }
 
 trait Errors {
@@ -181,7 +187,7 @@ impl<'r> Responder<'r, 'static> for UserRecord {
             .merge(Toml::file(Env::var_or("ROCKET_CONFIG", "Rocket.toml")).nested());
 
         let port = match config.find_value("port") {
-            Ok(number) => number.to_i128().unwrap(),
+            Ok(number) => number.to_i128().unwrap() as i32,
             _ => 0
         };
 
