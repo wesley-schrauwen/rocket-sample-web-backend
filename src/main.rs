@@ -6,7 +6,6 @@ use std::collections::HashMap;
 use std::str::FromStr;
 
 use rocket::response::{Responder, status};
-use rocket::response::status::{BadRequest, NotFound};
 use rocket::{Request, Response, State};
 use rocket::http::{ContentType, Header, Method, Status};
 use rocket::request::FromParam;
@@ -15,15 +14,11 @@ use rocket::serde::json::{Json, to_string};
 use serde::{Deserialize, Serialize};
 
 use sqlx::{Error, FromRow, PgPool, Row};
-use sqlx::postgres::{PgPoolOptions, PgQueryResult, PgRow};
+use sqlx::postgres::{PgPoolOptions, PgRow};
 use uuid::Uuid;
 use rocket::Config;
-use rocket::figment::{Figment, Profile};
-use rocket::figment::error::Actual;
+use rocket::figment::{Figment};
 use rocket::figment::providers::{Env, Format, Toml};
-use rocket::figment::value::Num::I32;
-use rocket::figment::value::Value;
-use rocket::figment::value::Value::Num;
 
 #[derive(Serialize, Deserialize, Hash)]
 struct UserDTO {
@@ -36,7 +31,7 @@ struct UserDTO {
     last_name: String
 }
 
-#[derive(Serialize, Hash, Clone)]
+#[derive(Serialize, Hash, Clone, Debug)]
 struct UserRecord {
     name: String,
     age: i32, /*
@@ -79,6 +74,7 @@ trait DatabaseModel {
     async fn get_by_id(id: &Uuid, pool: &PgPool) -> Result<UserRecord, ErrorResponse>;
     async fn insert(user: &UserDTO, pool: &PgPool) -> Result<UserRecord, ErrorResponse>;
     async fn delete_by_id(id: &Uuid, pool: &PgPool) -> Result<(), ErrorResponse>;
+    async fn update(id: &Uuid, user: &UserDTO, pool: &PgPool) -> Result<UserRecord, ErrorResponse>;
 }
 
 impl DatabaseModel for UserRecord {
@@ -134,7 +130,22 @@ impl DatabaseModel for UserRecord {
     }
 
     async fn update(id: &Uuid, user: &UserDTO, pool: &PgPool) -> Result<UserRecord, ErrorResponse> {
+        let query = "UPDATE USERS SET name = $1, last_name = $2, age = $3 WHERE id = $4 RETURNING *";
 
+        match sqlx::query_as::<_, UserRecord>(query)
+            .bind(&user.name)
+            .bind(&user.last_name)
+            .bind(&user.age)
+            .bind(id)
+            .fetch_one(pool).await {
+                Ok(user) => Ok(user),
+                Err(error) => Err(
+                    ErrorResponse {
+                        code: Status::InternalServerError,
+                        message: error.to_string()
+                    }
+                )
+        }
     }
 }
 
@@ -245,15 +256,9 @@ impl KeyValueStore {
     }
 }
 
-#[put("/<name>", format="json", data="<person>")]
-fn put_index(name: &str, person: Json<UserDTO>, cache: &State<KeyValueStore>) -> status::Created<Json<UserDTO>> {
-    let person = cache.insert(UserDTO {
-        name: name.to_string(),
-        age: person.age,
-        last_name: person.into_inner().last_name,
-    }).unwrap();
-
-    status::Created::new(format!("localhost:8000/{name}")).tagged_body(Json(person.clone()))
+#[put("/person/<id>", format="json", data="<person>")]
+async fn update_person(id: Uuid, person: Json<UserDTO>, pool: &State<PgPool>) -> Result<UserRecord, ErrorResponse> {
+    UserRecord::update(&id, &person.into_inner(), pool).await
 }
 
 #[delete("/person/<id>")]
@@ -266,19 +271,13 @@ async fn delete_person_by_id(id: Uuid, pool: &State<PgPool>) -> Result<status::N
 
 #[get("/person/<id>")]
 async fn get_person_by_id(id: Uuid, pool: &State<PgPool>) -> Result<UserRecord, ErrorResponse> {
-    match UserRecord::get_by_id(&id, pool.inner()).await {
-        Ok(user_dbo) => Ok(user_dbo),
-        Err(error) =>  Err(error)
-    }
+    UserRecord::get_by_id(&id, pool.inner()).await
 }
 
 #[post("/person", format="json", data="<person_data>")]
 async fn create_person(pool: &State<PgPool>, person_data: Json<UserDTO>) -> Result<UserRecord, ErrorResponse> {
     let person = person_data.into_inner();
-    match UserRecord::insert(&person, &pool.inner()).await {
-        Ok(record) => Ok(record),
-        Err(error) => Err(error)
-    }
+    UserRecord::insert(&person, &pool.inner()).await
 }
 
 #[launch]
@@ -295,5 +294,5 @@ async fn rocket() -> _ {
     rocket::build()
         .manage(cache)
         .manage(pool)
-        .mount("/", routes![get_person_by_id, create_person, delete_person_by_id, put_index])
+        .mount("/", routes![get_person_by_id, create_person, delete_person_by_id, update_person])
 }
