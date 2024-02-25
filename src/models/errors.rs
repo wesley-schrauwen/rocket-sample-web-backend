@@ -47,7 +47,7 @@ impl PersonErrors for ErrorResponse {
 }
 
 impl<'r> Responder<'r, 'static> for ErrorResponse {
-    fn respond_to(self, request: &'r Request<'_>) -> rocket::response::Result<'static> {
+    fn respond_to(self, _: &'r Request<'_>) -> rocket::response::Result<'static> {
         let serialized = to_string(&self).unwrap();
 
         Ok(
