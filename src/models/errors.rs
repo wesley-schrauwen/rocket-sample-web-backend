@@ -8,7 +8,7 @@ trait Errors {
     fn not_found(message: String) -> Json<ErrorResponse>;
 }
 
-#[derive(Serialize, Hash)]
+#[derive(Serialize, Hash, Debug)]
 pub struct ErrorResponse {
     pub code: Status,
     pub message: String

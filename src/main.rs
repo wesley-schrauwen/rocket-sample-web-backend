@@ -1,5 +1,6 @@
 mod models;
 mod routes;
+mod guards;
 
 #[macro_use] extern crate rocket;
 
@@ -11,6 +12,7 @@ use rocket::request::FromParam;
 use sqlx::postgres::{PgPoolOptions};
 use rocket::figment::providers::{Format};
 use crate::routes::person::*;
+use crate::routes::user_authentication::*;
 
 #[launch]
 async fn rocket() -> _ {
@@ -24,5 +26,5 @@ async fn rocket() -> _ {
 
     rocket::build()
         .manage(pool)
-        .mount("/", routes![get_person_by_id, create_person, delete_person_by_id, update_person])
+        .mount("/", routes![get_person_by_id, create_person, delete_person_by_id, update_person, login])
 }
