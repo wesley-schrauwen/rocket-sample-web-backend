@@ -4,7 +4,7 @@ use crate::models::errors::ErrorResponse;
 
 #[post("/login")]
 async fn login(cookies: &CookieJar<'_>) -> Result<(), ErrorResponse> {
-    cookies.add_private(("user", "dead-beef-user"));
+    cookies.add_private(("user", "00000000-0000-4000-8000-000000000000"));
     Ok(())
 }
 

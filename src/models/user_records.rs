@@ -1,4 +1,5 @@
-use rocket::http::{ContentType, Header, Method, Status};
+use std::str::FromStr;
+use rocket::http::{ContentType, Cookie, Header, Method, Status};
 use rocket::{Config, Request, Response};
 use rocket::figment::Figment;
 use rocket::figment::providers::{Env, Format, Toml};
@@ -109,6 +110,17 @@ impl DatabaseModel for UserRecord {
                     message: error.to_string()
                 }
             )
+        }
+    }
+
+    async fn get_by_cookie(cookie: &Cookie<'_>, pool: &PgPool) -> Result<UserRecord, ErrorResponse> {
+        if let Ok(uuid) = Uuid::from_str(cookie.value()) {
+            UserRecord::get_by_id(&uuid, pool).await
+        } else {
+            Err(ErrorResponse {
+                code: Status::BadRequest,
+                message: "Invalid uuid".to_string(),
+            })
         }
     }
 }

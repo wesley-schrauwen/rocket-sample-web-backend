@@ -28,5 +28,6 @@ async fn rocket() -> _ {
 
     rocket::build()
         .manage(pool)
-        .mount("/", [person_routes(), authentication_routes()])
+        .mount("/", person_routes())
+        .mount("/", authentication_routes())
 }
