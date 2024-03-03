@@ -3,31 +3,16 @@ use rocket::{Config, Request, Response};
 use rocket::figment::Figment;
 use rocket::figment::providers::{Env, Format, Toml};
 use rocket::response::Responder;
-use rocket::serde::{Deserialize, Serialize};
 use rocket::serde::json::to_string;
-use serde::{Deserializer, Serializer};
-use sqlx::{Decode, Encode, Error, FromRow, PgPool, Postgres, Row, Type};
-use sqlx::database::{HasArguments, HasValueRef};
-use sqlx::encode::IsNull;
-use sqlx::error::BoxDynError;
-use sqlx::postgres::{PgRow};
+use rocket::serde::Serialize;
+use sqlx::{Error, FromRow, PgPool, Row};
+use sqlx::postgres::PgRow;
 use uuid::Uuid;
 use crate::models::errors::ErrorResponse;
-
-#[derive(Debug, Clone, Hash)]
-pub enum UserRoles {
-    Admin,
-    User
-}
-
-impl Serialize for UserRoles {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
-        match self {
-            UserRoles::User => serializer.serialize_str("user"),
-            UserRoles::Admin => serializer.serialize_str("admin"),
-        }
-    }
-}
+use crate::models::user_dtos::UserDTO;
+use crate::models::user_roles::UserRoles;
+use crate::traits::database_model::DatabaseModel;
+use crate::utils::port::get_port;
 
 #[derive(Serialize, Hash, Clone, Debug)]
 pub struct UserRecord {
@@ -42,64 +27,6 @@ pub struct UserRecord {
     pub role: UserRoles
 }
 
-#[derive(Serialize, Deserialize, Hash, Debug)]
-pub struct UserDTO {
-    name: String,
-    age: i32, /*
-        postgres actually doesnt support i8 which would be closer to a reasonable age but because
-        its signed we need to deal with negatives anyway so may as well make this i32 and then do
-        validations
-    */
-    last_name: String,
-    role: UserRoles
-}
-
-impl<'q> Encode<'q, Postgres> for UserRoles {
-    fn encode_by_ref(&self, buf: &mut <Postgres as HasArguments<'q>>::ArgumentBuffer) -> IsNull {
-
-        let text: String = match self {
-            UserRoles::Admin => "admin".to_string(),
-            UserRoles::User => "user".to_string()
-        };
-
-        buf.extend(text.as_bytes().iter());
-
-        IsNull::No
-    }
-}
-
-impl<'r> Decode<'r, Postgres> for UserRoles {
-    fn decode(value: <Postgres as HasValueRef<'r>>::ValueRef) -> Result<Self, BoxDynError> {
-        let role = value.as_str().unwrap();
-
-        match role {
-            "admin" => Ok(UserRoles::Admin),
-            "user" => Ok(UserRoles::User),
-            _ => Err(BoxDynError::from(format!("Invalid UserRoles decoded: {}", role)))
-        }
-    }
-}
-
-impl Type<Postgres> for UserRoles {
-    fn type_info() -> <Postgres as sqlx::Database>::TypeInfo {
-        <Postgres as sqlx::Database>::TypeInfo::with_name("varchar")
-    }
-}
-
-#[derive(Debug)]
-pub struct AuthUser {}
-
-impl Clone for UserDTO {
-    fn clone(&self) -> Self {
-        UserDTO {
-            name: self.name.clone(),
-            age: self.age,
-            last_name: self.last_name.clone(),
-            role: self.role.clone()
-        }
-    }
-}
-
 impl FromRow<'_, PgRow> for UserRecord {
     fn from_row(row: &PgRow) -> Result<Self, Error> {
         Ok(Self {
@@ -110,13 +37,6 @@ impl FromRow<'_, PgRow> for UserRecord {
             role: row.get::<UserRoles, &str>("role")
         })
     }
-}
-
-pub trait DatabaseModel {
-    async fn get_by_id(id: &Uuid, pool: &PgPool) -> Result<UserRecord, ErrorResponse>;
-    async fn insert(user: &UserDTO, pool: &PgPool) -> Result<UserRecord, ErrorResponse>;
-    async fn delete_by_id(id: &Uuid, pool: &PgPool) -> Result<(), ErrorResponse>;
-    async fn update(id: &Uuid, user: &UserDTO, pool: &PgPool) -> Result<UserRecord, ErrorResponse>;
 }
 
 impl DatabaseModel for UserRecord {
@@ -202,33 +122,14 @@ impl<'r> Responder<'r, 'static> for UserRecord {
         response.header(ContentType::JSON);
         response.sized_body(serialized.len(), std::io::Cursor::new(serialized));
 
-        let config = Figment::from(Config::default())
-            .merge(Toml::file(Env::var_or("ROCKET_CONFIG", "Rocket.toml")).nested());
-
-        let port = match config.find_value("port") {
-            Ok(number) => number.to_i128().unwrap() as i32,
-            _ => 0
-        };
-
         let status = match request.method() {
             Method::Post | Method::Put | Method::Patch => {
-                response.header(Header::new("location",format!("http://localhost:{}/person/{}", port, &self.id)));
+                response.header(Header::new("location",format!("http://localhost:{}/person/{}", get_port(), &self.id)));
                 Status::Created
             },
             _ => Status::Ok
         };
 
         Ok(response.status(status).finalize())
-    }
-}
-
-impl<'d> Deserialize<'d> for UserRoles {
-    fn deserialize<D>(deserializer: D) -> Result<UserRoles, D::Error> where D: Deserializer<'d> {
-        let value = Deserialize::deserialize(deserializer).unwrap();
-        match value {
-            "admin" => Ok(UserRoles::Admin),
-            "user" => Ok(UserRoles::User),
-            _ => Err(serde::de::Error::custom("Error"))
-        }
     }
 }

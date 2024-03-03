@@ -5,15 +5,18 @@ use rocket::{State};
 use sqlx::PgPool;
 use uuid::Uuid;
 use crate::models::errors::ErrorResponse;
-use crate::models::users::{AuthUser, DatabaseModel, UserDTO, UserRecord};
+use crate::models::user_auth::*;
+use crate::models::user_dtos::UserDTO;
+use crate::models::user_records::UserRecord;
+use crate::traits::database_model::DatabaseModel;
 
 #[put("/person/<id>", format="json", data="<person>")]
-pub async fn update_person(id: Uuid, person: Json<UserDTO>, pool: &State<PgPool>) -> Result<UserRecord, ErrorResponse> {
+pub async fn update_person(id: Uuid, person: Json<UserDTO>, pool: &State<PgPool>, _auth_user: AuthUser) -> Result<UserRecord, ErrorResponse> {
     UserRecord::update(&id, &person.into_inner(), pool).await
 }
 
 #[delete("/person/<id>")]
-pub async fn delete_person_by_id(id: Uuid, pool: &State<PgPool>) -> Result<status::NoContent, ErrorResponse> {
+pub async fn delete_person_by_id(id: Uuid, pool: &State<PgPool>, _auth_user: AuthUser) -> Result<status::NoContent, ErrorResponse> {
     match UserRecord::delete_by_id(&id, &pool.inner()).await {
         Ok(_) => Ok(status::NoContent),
         Err(error) => Err(error)
@@ -26,7 +29,7 @@ pub async fn get_person_by_id(id: Uuid, pool: &State<PgPool>, _auth_user: AuthUs
 }
 
 #[post("/person", format="json", data="<person_data>")]
-pub async fn create_person(pool: &State<PgPool>, person_data: Json<UserDTO>) -> Result<UserRecord, ErrorResponse> {
+pub async fn create_person(pool: &State<PgPool>, person_data: Json<UserDTO>, _auth_user: AuthUser) -> Result<UserRecord, ErrorResponse> {
     let person = person_data.into_inner();
     println!("{:?}", person);
     UserRecord::insert(&person, &pool.inner()).await

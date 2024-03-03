@@ -1,6 +1,8 @@
 mod models;
 mod routes;
 mod guards;
+mod traits;
+mod utils;
 
 #[macro_use] extern crate rocket;
 
@@ -26,5 +28,5 @@ async fn rocket() -> _ {
 
     rocket::build()
         .manage(pool)
-        .mount("/", routes![get_person_by_id, create_person, delete_person_by_id, update_person, login])
+        .mount("/", routes![get_person_by_id, create_person, delete_person_by_id, update_person, login, logout])
 }

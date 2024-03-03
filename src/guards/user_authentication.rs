@@ -3,7 +3,7 @@ use rocket::outcome::Outcome::{Error, Success};
 use rocket::Request;
 use rocket::request::{FromRequest, Outcome};
 use crate::models::errors::ErrorResponse;
-use crate::models::users::AuthUser;
+use crate::models::user_auth::AuthUser;
 
 #[rocket::async_trait]
 impl<'r> FromRequest<'r> for AuthUser {
