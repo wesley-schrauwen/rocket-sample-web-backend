@@ -1,14 +1,19 @@
 use rocket::http::CookieJar;
+use rocket::Route;
 use crate::models::errors::ErrorResponse;
 
 #[post("/login")]
-pub async fn login(cookies: &CookieJar<'_>) -> Result<(), ErrorResponse> {
+async fn login(cookies: &CookieJar<'_>) -> Result<(), ErrorResponse> {
     cookies.add_private(("user", "dead-beef-user"));
     Ok(())
 }
 
 #[post("/logout")]
-pub async fn logout(cookies: &CookieJar<'_>) -> Result<(), ()> {
+async fn logout(cookies: &CookieJar<'_>) -> Result<(), ()> {
     cookies.remove("user");
     Ok(())
+}
+
+pub fn authentication_routes() -> Vec<Route> {
+    routes![login, logout]
 }
