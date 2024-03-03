@@ -6,9 +6,10 @@ use rocket::response::Responder;
 use rocket::serde::{Deserialize, Serialize};
 use rocket::serde::json::to_string;
 use serde::{Deserializer, Serializer};
-use sqlx::{Encode, Error, FromRow, PgPool, Postgres, Row, Type};
-use sqlx::database::HasArguments;
+use sqlx::{Decode, Encode, Error, FromRow, PgPool, Postgres, Row, Type};
+use sqlx::database::{HasArguments, HasValueRef};
 use sqlx::encode::IsNull;
+use sqlx::error::BoxDynError;
 use sqlx::postgres::{PgRow};
 use uuid::Uuid;
 use crate::models::errors::ErrorResponse;
@@ -67,6 +68,18 @@ impl<'q> Encode<'q, Postgres> for UserRoles {
     }
 }
 
+impl<'r> Decode<'r, Postgres> for UserRoles {
+    fn decode(value: <Postgres as HasValueRef<'r>>::ValueRef) -> Result<Self, BoxDynError> {
+        let role = value.as_str().unwrap();
+
+        match role {
+            "admin" => Ok(UserRoles::Admin),
+            "user" => Ok(UserRoles::User),
+            _ => Err(BoxDynError::from(format!("Invalid UserRoles decoded: {}", role)))
+        }
+    }
+}
+
 impl Type<Postgres> for UserRoles {
     fn type_info() -> <Postgres as sqlx::Database>::TypeInfo {
         <Postgres as sqlx::Database>::TypeInfo::with_name("varchar")
@@ -94,11 +107,7 @@ impl FromRow<'_, PgRow> for UserRecord {
             age: row.get("age"),
             last_name: row.get::<String, &str>("last_name"),
             id: row.get::<Uuid, &str>("id"),
-            role: match row.get::<&str, &str>("role") {
-                "admin" => UserRoles::Admin,
-                "user" => UserRoles::User,
-                _ => panic!()
-            }
+            role: row.get::<UserRoles, &str>("role")
         })
     }
 }
