@@ -16,7 +16,7 @@ async fn update_person(id: Uuid, person: Json<UserDTO>, pool: &State<PgPool>, _a
 }
 
 #[delete("/person/<id>")]
-async fn delete_person_by_id(id: Uuid, pool: &State<PgPool>, _auth_user: AuthUser) -> Result<status::NoContent, ErrorResponse> {
+async fn delete_person_by_id(id: Uuid, pool: &State<PgPool>, _user: AdminUser) -> Result<status::NoContent, ErrorResponse> {
     match UserRecord::delete_by_id(&id, &pool.inner()).await {
         Ok(_) => Ok(status::NoContent),
         Err(error) => Err(error)

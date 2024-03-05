@@ -53,11 +53,13 @@ impl Type<Postgres> for UserRoles {
 
 impl<'d> Deserialize<'d> for UserRoles {
     fn deserialize<D>(deserializer: D) -> Result<UserRoles, D::Error> where D: Deserializer<'d> {
-        let value = Deserialize::deserialize(deserializer).unwrap();
-        match value {
-            "admin" => Ok(UserRoles::Admin),
-            "user" => Ok(UserRoles::User),
-            _ => Err(serde::de::Error::custom("Error"))
+        match Deserialize::deserialize(deserializer) {
+            Ok(value) => match value {
+                "admin" => Ok(UserRoles::Admin),
+                "user" => Ok(UserRoles::User),
+                _ => Err(serde::de::Error::custom("Error"))
+            },
+            _ => Err(serde::de::Error::missing_field("role"))
         }
     }
 }

@@ -1,10 +1,11 @@
 use rocket::http::CookieJar;
 use rocket::Route;
+use uuid::Uuid;
 use crate::models::errors::ErrorResponse;
 
-#[post("/login")]
-async fn login(cookies: &CookieJar<'_>) -> Result<(), ErrorResponse> {
-    cookies.add_private(("user", "00000000-0000-4000-8000-000000000000"));
+#[post("/login/<id>")]
+async fn login(id: Uuid, cookies: &CookieJar<'_>) -> Result<(), ErrorResponse> {
+    cookies.add_private(("user", id.to_string()));
     Ok(())
 }
 
