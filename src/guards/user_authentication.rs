@@ -24,7 +24,7 @@ impl<'r> FromRequest<'r> for AuthUser {
 
         match cookie {
             Some(cookie) => match UserRecord::get_by_cookie(&cookie, pool).await {
-                Ok(user) => Outcome::Success(AuthUser {}),
+                Ok(_) => Success(AuthUser {}),
                 _ => error
             },
             _ => error
@@ -48,7 +48,7 @@ impl<'r> FromRequest<'r> for AdminUser {
         match cookie {
             Some(cookie) => match UserRecord::get_by_cookie(&cookie, pool).await {
                 Ok(user) => match user.role {
-                    UserRoles::Admin => Outcome::Success(AdminUser {}),
+                    UserRoles::Admin => Success(AdminUser {}),
                     _ => error
                 },
                 _ => error
